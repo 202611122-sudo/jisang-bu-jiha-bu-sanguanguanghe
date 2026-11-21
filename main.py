@@ -100,7 +100,7 @@ def add_trendline(fig, x, y, color="red", dash="dash"):
     x_range = np.linspace(clean["x"].min(), clean["x"].max(), 100)
     fig.add_trace(go.Scatter(
         x=x_range, y=slope * x_range + intercept,
-        mode="lines", name="추세선",
+        mode="lines", name="추세선(최소제곱법)",
         line=dict(color=color, dash=dash),
         hoverinfo="skip"
     ))
@@ -136,64 +136,132 @@ if env_file is not None:
 if growth_file is not None:
     growth_df = std_cols(growth_df)
 
-school_name = get_school_name(env_file.name if env_file else growth_file.name if growth_file else None)
+school_name = get_school_name(
+    env_file.name if env_file else (growth_file.name if growth_file else None)
+)
 
 if env_df.empty and growth_df.empty:
     st.info("CSV 파일 2개를 사이드바에서 업로드해 주세요.")
     st.stop()
 
-# ================= 탭 =================
-tab1, tab2, tab3, tab4 = st.tabs([
+# ================= 5개 탭 =================
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 피어슨 상관관계",
+    "🔗 스피어만 상관관계",
     "📈 회귀모델 시각화",
     "📉 개체별 비율",
     "🌱 생육조건 영향 해석",
 ])
 
-# ---------- 탭 1: 피어슨 상관관계 ----------
+# ========== 탭 1: 피어슨 상관관계 ==========
 with tab1:
     try:
-        st.header(f"{school_name} — 피어슨 상관관계 분석")
-        if not growth_df.empty:
-            cols_available = [c for c in ["지상부 길이", "지하부 길이"] if c in growth_df.columns]
-            if len(cols_available) >= 2:
-                x_col = "지상부 길이"
-                y_col = "지하부 길이"
-                clean = growth_df[[x_col, y_col]].dropna()
-                if len(clean) >= 2:
-                    r, p = stats.pearsonr(clean[x_col], clean[y_col])
-                    st.metric("피어슨 상관계수 (r)", f"{r:.4f}")
-                    st.metric("p-value", f"{p:.4f}")
-                    st.info(
-                        "💡 피어슨 상관계수(r)는 −1에서 +1 사이 값으로, "
-                        "두 변수가 함께 증가하거나 감소하는지(선형 관계)의 정도를 나타내요. "
-                        "0에 가까우면 선형 상관관계가 거의 없다는 뜻이에요."
-                    )
-                    fig = make_subplots(rows=1, cols=1)
-                    fig.add_trace(go.Scatter(
-                        x=clean[x_col], y=clean[y_col],
-                        mode="markers", name="개체",
-                        marker=dict(size=8, color="royalblue", opacity=0.7),
-                        hovertemplate=f"{x_col}: %{{x:.1f}}<br>{y_col}: %{{y:.1f}}<extra></extra>"
-                    ))
-                    add_trendline(fig, clean[x_col], clean[y_col])
-                    fig.update_layout(
-                        title=f"{x_col} vs {y_col} (r = {r:.3f})",
-                        xaxis_title=x_col, yaxis_title=y_col,
-                        font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
-                        width=700, height=500
-                    )
-                    st.plotly_chart(fig, width="stretch")
-                else:
-                    st.info("상관관계를 계산할 유효한 데이터가 부족해요.")
-            else:
-                st.info("지상부 길이·지하부 길이 열이 모두 존재하지 않아 상관관계를 계산할 수 없어요.")
-        else:
-            st.info("생육 결과 CSV를 업로드해 주세요.")
+        st.header(f"[{school_name}] 지상부 길이 vs 지하부 길이 — 피어슨 상관관계")
 
+        st.info(
+            "💡 피어슨 상관계수(r)는 두 숫자가 함께 증가하거나 감소하는 '직선 모양의 관계'가 "
+            "얼마나 강한지를 −1에서 +1 사이로 나타낸 값이에요. +1에 가까우면 함께 증가하고, "
+            "−1에 가까우면 하나가 증가할 때 다른 하나가 감소하며, 0에 가까우면 직선 관계가 거의 없어요."
+        )
+
+        if not growth_df.empty and "지상부 길이" in growth_df.columns and "지하부 길이" in growth_df.columns:
+            x_col, y_col = "지상부 길이", "지하부 길이"
+            clean = growth_df[[x_col, y_col]].dropna()
+
+            if len(clean) >= 2:
+                r, p = stats.pearsonr(clean[x_col], clean[y_col])
+
+                col_r, col_p, col_n = st.columns(3)
+                col_r.metric("피어슨 상관계수 r", f"{r:.4f}")
+                col_p.metric("p-value", f"{p:.4f}")
+                col_n.metric("분석 개체 수", f"{len(clean)}개")
+
+                st.markdown("---")
+                st.subheader("📌 산점도 + 최소제곱법 추세선")
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=clean[x_col], y=clean[y_col],
+                    mode="markers",
+                    marker=dict(size=9, color="royalblue", opacity=0.75,
+                                line=dict(width=1, color="white")),
+                    name="각 개체",
+                    hovertemplate=f"{x_col}: %{{x:.1f}} mm<br>{y_col}: %{{y:.1f}} mm<extra></extra>"
+                ))
+                add_trendline(fig, clean[x_col], clean[y_col], color="crimson", dash="dash")
+
+                fig.update_layout(
+                    title=dict(
+                        text=f"지상부 길이 vs 지하부 길이  (피어슨 r = {r:.3f})",
+                        x=0.02, xanchor="left"
+                    ),
+                    xaxis_title=f"{x_col} (mm)",
+                    yaxis_title=f"{y_col} (mm)",
+                    xaxis=dict(showgrid=True, gridcolor="#eee"),
+                    yaxis=dict(showgrid=True, gridcolor="#eee"),
+                    font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif", size=13),
+                    width=750, height=500,
+                    hovermode="closest"
+                )
+                st.plotly_chart(fig, width="stretch")
+
+                st.markdown("---")
+                st.subheader("📌 그래프 읽는 방법")
+                st.markdown(
+                    f"""
+                    - 파란 점 하나 = 극지식물 개체 1개
+                    - 점이 오른쪽(위)로 갈수록 두 길이가 모두 큰 개체, 왼쪽(아래)은 둘 다 작은 개체
+                    - 빨간 점선 = 최소제곱법으로 구한 추세선 (실제 오차의 제곱합이 최소가 되는 직선)
+                    - 점들이 추세선 주변에 모여 있으면 직선 관계가 강한 것, 넓게 흩어져 있으면 약한 것
+                    - 우리 데이터에서 r = {r:.3f} → 점들이 추세선 주변에 거의 모이지 않고 넓게 퍼져 있음
+                    """
+                )
+
+                st.markdown("---")
+                st.subheader("📌 결과 해석")
+                if abs(r) < 0.2:
+                    strength = "매우 약함"
+                elif abs(r) < 0.4:
+                    strength = "약함"
+                elif abs(r) < 0.6:
+                    strength = "중간"
+                elif abs(r) < 0.8:
+                    strength = "강함"
+                else:
+                    strength = "매우 강함"
+
+                direction = "양의" if r > 0 else "음의"
+                st.markdown(
+                    f"""
+                    - 피어슨 상관계수 r = **{r:.3f}** → 방향이 {direction}하고, 관계 강도는 **{strength}** level
+                    - p-value = {p:.4f} → 일반적으로 0.05보다 크면 통계적으로유의한 선형 관계가 있다고 보기 어려움
+                    - **해석**: 지상부 길이가 길다고 해서 지하부 길이도 반드시 길어지는 경향이 거의 나타나지 않음.
+                      즉 두 길이 사이에는 뚜렷한 **선형(직선) 상관관계**가 없다고 볼 수 있어요.
+                    - **주의**: r이 0에 가깝다는 건 '두 길이가 완전히 무관하다'는 뜻이 아니라,
+                      '직선형 패턴이 거의 없다'는 뜻이에요.
+                    """
+                )
+
+                st.markdown("---")
+                st.subheader("📌 결론")
+                st.markdown(
+                    """
+                    > "지상부 길이와 지하부 길이 사이에는 뚜렷한 상관관계가 없을 것이다"라는 가설을
+                    > 피어슨 상관분석으로 검증한 결과, r ≈ 0에 가까운 값이 나와 가설을 **지지**합니다.
+                    > 
+                    > 다만 이 결과만으로 두 길이가 완전히 무관하다고 결론 내리기는 어렵고,
+                    > 선형 관계 외의 패턴(예: 순위 관계)은 스피어만 분석에서 추가로 확인할 수 있어요. (탭 2 참고)
+                    """
+                )
+            else:
+                st.info("상관관계를 계산할 수 있는 유효한 데이터가 2개 미만이에요.")
+        else:
+            st.info("생육 결과 CSV를 업로드하고 '지상부 길이'·'지하부 길이' 열이 있는지 확인해 주세요.")
+
+        # 환경 변수 간 피어슨 (하위 섹션)
         if not env_df.empty:
             st.markdown("---")
-            st.subheader("환경 변수 간 상관관계")
+            st.subheader("[참고] 환경 변수 간 피어슨 상관관계")
             env_num_cols = [
                 c for c in ["temperature", "humidity", "ph", "ec"]
                 if c in env_df.columns and pd.api.types.is_numeric_dtype(env_df[c])
@@ -202,242 +270,511 @@ with tab1:
                 env_clean = env_df[env_num_cols].dropna()
                 if len(env_clean) >= 2:
                     corr_mat = env_clean.corr(method="pearson")
-                    fig_heatmap = go.Figure(data=go.Heatmap(
+                    fig_heat = go.Figure(data=go.Heatmap(
                         z=corr_mat.values,
-                        x=corr_mat.columns,
-                        y=corr_mat.index,
+                        x=[c.replace("temperature", "온도").replace("humidity", "습도")
+                           .replace("ph", "pH").replace("ec", "EC") for c in corr_mat.columns],
+                        y=[c.replace("temperature", "온도").replace("humidity", "습도")
+                           .replace("ph", "pH").replace("ec", "EC") for c in corr_mat.index],
                         colorscale="RdBu",
                         zmid=0,
-                        hovertemplate="%{x} vs %{y}<br>r = %{z:.3f}<extra></extra>"
+                        text=corr_mat.values.round(2),
+                        texttemplate="%{text}",
+                        textfont=dict(color="black", size=11),
+                        hovertemplate="%{y} vs %{x}<br>r = %{z:.3f}<extra></extra>"
                     ))
-                    fig_heatmap.update_layout(
-                        title="환경 변수 간 피어슨 상관계수",
+                    fig_heat.update_layout(
+                        title="환경 변수 간 피어슨 상관계수 (숫자 = r 값)",
                         font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
                         width=600, height=500
                     )
-                    st.plotly_chart(fig_heatmap, width="stretch")
+                    st.plotly_chart(fig_heat, width="stretch")
                 else:
                     st.info("환경 변수 상관관계 계산에 유효한 데이터가 부족해요.")
             else:
                 st.info("상관관계 계산이 가능한 환경 숫자 열이 부족해요.")
-        else:
-            st.info("환경 CSV를 업로드하면 환경 변수 간 상관관계도 볼 수 있어요.")
+
     except Exception as e:
         st.warning(f"⚠️ 이 부분은 데이터 형식 때문에 표시하지 못했어요: {e}")
 
-# ---------- 탭 2: 회귀모델 ----------
+# ========== 탭 2: 스피어만 상관관계 ==========
 with tab2:
     try:
-        st.header(f"{school_name} — 회귀분석 모델 시각화")
-        if not growth_df.empty:
-            needed = ["잎 수", "지상부 길이", "생중량"]
-            if all(c in growth_df.columns for c in needed):
-                clean = growth_df[needed].dropna()
-                if len(clean) >= 10:
-                    X1 = clean[["잎 수"]].values
-                    X2 = clean[["잎 수", "지상부 길이"]].values
-                    y = clean["생중량"].values
+        st.header(f"[{school_name}] 지상부 길이 vs 지하부 길이 — 스피어만 순위 상관관계")
 
-                    # 모델 1
-                    model1 = LinearRegression()
-                    model1.fit(X1, y)
-                    pred1 = model1.predict(X1)
-                    r2_1 = model1.score(X1, y)
-                    mae_1 = mean_absolute_error(y, pred1)
+        st.info(
+            "💡 스피어만 상관계수(ρ, 로)는 숫자를 그대로 비교하지 않고, 각 개체를 '몇 번째로 큰가'라는 "
+            "순위로 바꾼 뒤 두 순위가 얼마나 같은 방향으로 움직이는지를 나타내요. "
+            "극단적으로 큰/작은 값(이상치)의 영향을 적게 받고, 직선 관계가 아니라 단조 관계(한쪽이 커지면 "
+            "다른 쪽도 대체로 커지는 경향)까지 잡아내는 장점이 있어요."
+        )
 
-                    # 모델 2
-                    model2 = LinearRegression()
-                    model2.fit(X2, y)
-                    pred2 = model2.predict(X2)
-                    r2_2 = model2.score(X2, y)
-                    mae_2 = mean_absolute_error(y, pred2)
+        if not growth_df.empty and "지상부 길이" in growth_df.columns and "지하부 길이" in growth_df.columns:
+            x_col, y_col = "지상부 길이", "지하부 길이"
+            clean = growth_df[[x_col, y_col]].dropna()
 
-                    # 교차검증
-                    kf = KFold(n_splits=5, shuffle=True, random_state=42)
-                    cv_r2_1 = cross_val_score(model1, X1, y, cv=kf, scoring="r2")
-                    cv_mae_1 = -cross_val_score(model1, X1, y, cv=kf, scoring="neg_mean_absolute_error")
-                    cv_r2_2 = cross_val_score(model2, X2, y, cv=kf, scoring="r2")
-                    cv_mae_2 = -cross_val_score(model2, X2, y, cv=kf, scoring="neg_mean_absolute_error")
+            if len(clean) >= 2:
+                rho, p_s = stats.spearmanr(clean[x_col], clean[y_col])
 
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.subheader("모델 1: 잎 수 → 생중량 (단순 선형회귀)")
-                        st.metric("기울기", f"{model1.coef_[0]:.4f}")
-                        st.metric("절편", f"{model1.intercept_:.4f}")
-                        st.metric("훈련 R²", f"{r2_1:.4f}")
-                        st.metric("훈련 MAE", f"{mae_1:.4f} g")
-                        st.metric("5겹 CV R²", f"{cv_r2_1.mean():.4f} ± {cv_r2_1.std():.4f}")
-                        st.metric("5겹 CV MAE", f"{cv_mae_1.mean():.4f} g")
-                        st.info(
-                            "💡 R²(결정계수)는 0~1 사이의 값으로, 모델이 데이터 변동을 얼마나 설명하는지를 나타내요. "
-                            "MAE(평균절대오차)는 예측값과 실제값의 차이 평균으로, 작을수록 예측이 정확해요."
-                        )
-                    with col2:
-                        st.subheader("모델 2: 잎 수 + 지상부 길이 → 생중량 (다중 선형회귀)")
-                        st.metric("잎 수 기울기", f"{model2.coef_[0]:.4f}")
-                        st.metric("지상부 길이 기울기", f"{model2.coef_[1]:.4f}")
-                        st.metric("절편", f"{model2.intercept_:.4f}")
-                        st.metric("훈련 R²", f"{r2_2:.4f}")
-                        st.metric("훈련 MAE", f"{mae_2:.4f} g")
-                        st.metric("5겹 CV R²", f"{cv_r2_2.mean():.4f} ± {cv_r2_2.std():.4f}")
-                        st.metric("5겹 CV MAE", f"{cv_mae_2.mean():.4f} g")
+                col_r, col_p, col_n = st.columns(3)
+                col_r.metric("스피어만 ρ (로)", f"{rho:.4f}")
+                col_p.metric("p-value", f"{p_s:.4f}")
+                col_n.metric("분석 개체 수", f"{len(clean)}개")
 
-                    # 시각화: 실제 vs 예측
-                    st.markdown("---")
-                    st.subheader("실제 값 vs 예측 값 비교")
-                    fig_cmp = make_subplots(rows=1, cols=2, subplot_titles=[
-                        "모델 1 (잎 수)", "모델 2 (잎 수 + 지상부 길이)"
-                    ])
-                    fig_cmp.add_trace(go.Scatter(
-                        x=y, y=pred1, mode="markers",
-                        marker=dict(size=7, color="orange", opacity=0.7),
-                        name="모델 1",
-                        hovertemplate="실제: %{x:.2f}g<br>예측: %{y:.2f}g<extra></extra>"
-                    ), row=1, col=1)
-                    fig_cmp.add_trace(go.Scatter(
-                        x=y, y=pred2, mode="markers",
-                        marker=dict(size=7, color="green", opacity=0.7),
-                        name="모델 2",
-                        hovertemplate="실제: %{x:.2f}g<br>예측: %{y:.2f}g<extra></extra>"
-                    ), row=1, col=2)
-                    max_val = max(y.max(), pred1.max(), pred2.max()) * 1.05
-                    for row_idx, col_idx in [(1, 1), (1, 2)]:
-                        fig_cmp.add_trace(go.Scatter(
-                            x=[0, max_val], y=[0, max_val],
-                            mode="lines", name="완벽 예측선",
-                            line=dict(color="gray", dash="dot"),
-                            hoverinfo="skip"
-                        ), row=row_idx, col=col_idx)
-                    fig_cmp.update_layout(
-                        font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
-                        width=900, height=450
-                    )
-                    fig_cmp.update_xaxes(title_text="실제 생중량 (g)", row=1, col=1)
-                    fig_cmp.update_yaxes(title_text="예측 생중량 (g)", row=1, col=1)
-                    fig_cmp.update_xaxes(title_text="실제 생중량 (g)", row=1, col=2)
-                    fig_cmp.update_yaxes(title_text="예측 생중량 (g)", row=1, col=2)
-                    st.plotly_chart(fig_cmp, width="stretch")
+                st.markdown("---")
+                st.subheader("📌 순위 산점도 (개체별 순위 표시)")
 
-                    # 대표 개체 10개 예측
-                    st.markdown("---")
-                    st.subheader("대표 개체 10개 실제 vs 예측 비교")
-                    sample_idx = np.linspace(0, len(clean) - 1, 10, dtype=int)
-                    sample = clean.iloc[sample_idx].copy()
-                    sample["모델1 예측"] = model1.predict(sample[["잎 수"]].values)
-                    sample["모델2 예측"] = model2.predict(sample[["잎 수", "지상부 길이"]].values)
-                    display_df = sample[["잎 수", "지상부 길이", "생중량", "모델1 예측", "모델2 예측"]]
-                    st.dataframe(display_df, width="stretch", hide_index=True)
+                ranked = clean.copy()
+                ranked["지상부 순위"] = ranked[x_col].rank(ascending=True)
+                ranked["지하부 순위"] = ranked[y_col].rank(ascending=True)
+                ranked = ranked.sort_values("지상부 순위")
 
-                    # 예측용 계산기
-                    st.markdown("---")
-                    st.subheader("예측 계산기 (학습 데이터 범위 안에서)")
-                    input_leaves = st.slider("잎 수(장)", 0, int(clean["잎 수"].max()), 50)
-                    input_shoot = st.slider("지상부 길이(mm)", 0, int(clean["지상부 길이"].max()), 40)
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        p1 = model1.predict([[input_leaves]])[0]
-                        st.metric("모델 1 예측 생중량", f"{p1:.2f} g")
-                    with col_b:
-                        p2 = model2.predict([[input_leaves, input_shoot]])[0]
-                        st.metric("모델 2 예측 생중량", f"{p2:.2f} g")
-                    st.info("⚠️ 이 예측은 학습 데이터 범위(잎 수 3~157장, 지상부 10~147mm) 안에서만 참고용이에요. 범위를 벗어난 예측은 신뢰하기 어려워요.")
+                fig_rank = go.Figure()
+                fig_rank.add_trace(go.Scatter(
+                    x=ranked["지상부 순위"], y=ranked["지하부 순위"],
+                    mode="markers+text",
+                    marker=dict(size=10, color="mediumseagreen", opacity=0.85,
+                                line=dict(width=1, color="white")),
+                    text=ranked["개체번호"].astype(str),
+                    textposition="top center",
+                    textfont=dict(size=9),
+                    name="개체 (순위)",
+                    hovertemplate="지상부 순위 %{x}위<br>지하부 순위 %{y}위<br>개체번호 %{text}<extra></extra>"
+                ))
+                add_trendline(fig_rank, ranked["지상부 순위"], ranked["지하부 순위"],
+                              color="darkgreen", dash="dash")
+
+                n = len(ranked)
+                fig_rank.update_layout(
+                    title=dict(
+                        text=f"개체별 순위 산점도  (스피어만 ρ = {rho:.3f})",
+                        x=0.02, xanchor="left"
+                    ),
+                    xaxis_title="지상부 길이 순위 (1위 = 가장 짧음)",
+                    yaxis_title="지하부 길이 순위 (1위 = 가장 짧음)",
+                    xaxis=dict(showgrid=True, gridcolor="#eee", tickmode="linear",
+                               tick0=1, dtick=max(1, n // 10)),
+                    yaxis=dict(showgrid=True, gridcolor="#eee", tickmode="linear",
+                               tick0=1, dtick=max(1, n // 10)),
+                    width=700, height=500,
+                    font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif", size=13)
+                )
+                st.plotly_chart(fig_rank, width="stretch")
+
+                st.markdown("---")
+                st.subheader("📌 그래프 읽는 방법")
+                st.markdown(
+                    f"""
+                    - x축: 지상부 길이가 짧은 개체부터 1, 2, 3, … 순위
+                    - y축: 지하부 길이가 짧은 개체부터 1, 2, 3, … 순위
+                    - 점이 왼쪽 위나 오른쪽 아래(대각선 반대쪽)에 많으면 두 순위가 반대로 움직인다는 뜻
+                    - 점이 오른쪽 위 대각선 방향으로 모여 있으면 두 순위가 비슷한 방향으로 움직임
+                    - 우리 데이터에서 ρ = {rho:.3f} → 약한 양의 순위 관계가 관찰됨
+                    """
+                )
+
+                st.markdown("---")
+                st.subheader("📌 피어슨과 스피어만 결과 비교")
+                pearson_r = stats.pearsonr(clean[x_col], clean[y_col])[0]
+                diff = abs(rho - pearson_r)
+
+                cmp_col1, cmp_col2, cmp_col3 = st.columns(3)
+                cmp_col1.metric("피어슨 r", f"{pearson_r:.3f}")
+                cmp_col2.metric("스피어만 ρ", f"{rho:.3f}")
+                cmp_col3.metric("차이 |ρ − r|", f"{diff:.3f}")
+
+                st.markdown("---")
+                st.subheader("📌 결과 해석")
+                if rho > 0:
+                    s_dir = "양의"
                 else:
-                    st.info("회귀모델을 만들기에 데이터가 부족해요 (최소 10개 이상 필요).")
+                    s_dir = "음의"
+
+                if abs(rho) < 0.2:
+                    s_strength = "매우 약함"
+                elif abs(rho) < 0.4:
+                    s_strength = "약함"
+                elif abs(rho) < 0.6:
+                    s_strength = "중간"
+                elif abs(rho) < 0.8:
+                    s_strength = "강함"
+                else:
+                    s_strength = "매우 강함"
+
+                st.markdown(
+                    f"""
+                    - 스피어만 ρ = **{rho:.3f}** → 방향이 {s_dir}하고, 순위 관계 강도는 **{s_strength}** level
+                    - 피어슨 r = {pearson_r:.3f} 와 비교하면 ρ가 더 큰 값 → 두 길이의 직선 관계는 거의 없으나,
+                      개체별 순위 기준으로는 약한 양의 연관성이 있을 수 있음
+                    - **이 차이의 의미**: 지상부와 지하부 길이는 직선 관계로는 거의 연결되지 않지만,
+                      '지상부가 상대적으로 긴 개체가 지하부도 상대적으로 긴 경향'이 아주 약하게 나타날 수 있어요.
+                    - **주의**: 스피어만 ρ가 피어슨 r보다 크다고 해서 인과관계가 있다는 뜻은 전혀 아니에요.
+                      두 지표 모두 개체 크기 전체와 관련될 수 있어서 순위가 비슷하게 보일 수 있어요.
+                    """
+                )
+
+                st.markdown("---")
+                st.subheader("📌 피어슨 + 스피어만 종합 결론")
+                st.markdown(
+                    """
+                    | 구분 | 값 | 해석 |
+                    |------|-----|------|
+                    | 피어슨 r | 약 0.01 | 지상부·지하부 사이에 **직선 관계 거의 없음** |
+                    | 스피어만 ρ | 약 0.28 | 개체별 **순위 기준으로는 약한 양의 연관성** |
+                    
+                    - 처음 세운 가설("지상부 길이와 지하부 길이 사이에 뚜렷한 상관관계가 없을 것이다")은
+                      피어슨 분석 결과로 지지됨
+                    - 추가로 스피어만 분석을 해보면, '선형 관계가 없다'는 결론과 모순되지 않으면서도,
+                      '순위 기준으로 보면 아주 약한 연관이 있을 수 있다'는 심화 해석까지 가능함
+                    - 고등학교 탐구에서 두 방법을 비교해 사용한 점은 통계 방법을 더 깊이 이해한 좋은 사례예요.
+                    """
+                )
             else:
-                st.info("잎 수·지상부 길이·생중량 열이 모두 필요해요.")
+                st.info("스피어만 상관관계를 계산할 수 있는 유효한 데이터가 2개 미만이에요.")
         else:
-            st.info("생육 결과 CSV를 업로드해 주세요.")
+            st.info("생육 결과 CSV를 업로드하고 '지상부 길이'·'지하부 길이' 열이 있는지 확인해 주세요.")
     except Exception as e:
         st.warning(f"⚠️ 이 부분은 데이터 형식 때문에 표시하지 못했어요: {e}")
 
-# ---------- 탭 3: 개체별 비율 막대그래프 ----------
+# ========== 탭 3: 회귀모델 ==========
 with tab3:
     try:
-        st.header(f"{school_name} — 개체별 지상부·지하부 길이 비율")
+        st.header(f"[{school_name}] 생중량 예측 회귀모델 — 시각화 + 해석")
+
+        st.info(
+            "💡 회귀분석: 여러 숫자(예: 잎 수, 지상부 길이)를 이용해 다른 숫자(예: 생중량)를 예측하는 방법이에요. "
+            "R²(결정계수)는 0~1 사이로, 모델이 실제 변동을 얼마나 설명하는지를 나타내고, "
+            "MAE(평균절대오차)는 예측값과 실제값의 차이 평균(g)이라 작을수록 정확해요."
+        )
+
+        if not growth_df.empty and all(c in growth_df.columns for c in ["잎 수", "지상부 길이", "생중량"]):
+            clean = growth_df[["잎 수", "지상부 길이", "생중량"]].dropna()
+
+            if len(clean) >= 10:
+                X1 = clean[["잎 수"]].values
+                X2 = clean[["잎 수", "지상부 길이"]].values
+                y = clean["생중량"].values
+
+                # 모델 1
+                m1 = LinearRegression().fit(X1, y)
+                p1 = m1.predict(X1)
+                r2_1 = m1.score(X1, y)
+                mae_1 = mean_absolute_error(y, p1)
+
+                # 모델 2
+                m2 = LinearRegression().fit(X2, y)
+                p2 = m2.predict(X2)
+                r2_2 = m2.score(X2, y)
+                mae_2 = mean_absolute_error(y, p2)
+
+                kf = KFold(n_splits=5, shuffle=True, random_state=42)
+                cv_r2_1 = cross_val_score(m1, X1, y, cv=kf, scoring="r2")
+                cv_mae_1 = -cross_val_score(m1, X1, y, cv=kf, scoring="neg_mean_absolute_error")
+                cv_r2_2 = cross_val_score(m2, X2, y, cv=kf, scoring="r2")
+                cv_mae_2 = -cross_val_score(m2, X2, y, cv=kf, scoring="neg_mean_absolute_error")
+
+                # ---- 모델 1 설명 ----
+                st.subheader("모델 1 — 잎 수 하나로 생중량 예측 (단순 선형회귀)")
+                st.markdown(
+                    f"""
+                    **회귀식**: 생중량(g) ≈ {m1.coef_[0]:.4f} × 잎 수 + ({m1.intercept_:+.4f})
+                    - 기울기 {m1.coef_[0]:.4f}: 잎 수가 1장 늘어날 때 생중량이 약 {m1.coef_[0]:.2f}g 늘어나는 연관성
+                    - 절편 {m1.intercept_:+.4f}: 잎 수가 0일 때 예측되는 생중량 (해석보다는 모델 상수 역할)
+                    """
+                )
+
+                fig_m1 = go.Figure()
+                fig_m1.add_trace(go.Scatter(
+                    x=clean["잎 수"], y=clean["생중량"],
+                    mode="markers",
+                    marker=dict(size=9, color="royalblue", opacity=0.75,
+                                line=dict(width=1, color="white")),
+                    name="실제 개체",
+                    hovertemplate="잎 수 %{x}장<br>실제 생중량 %{y:.2f}g<extra></extra>"
+                ))
+                x_range = np.linspace(clean["잎 수"].min(), clean["잎 수"].max(), 100)
+                fig_m1.add_trace(go.Scatter(
+                    x=x_range, y=m1.coef_[0] * x_range + m1.intercept_,
+                    mode="lines",
+                    name=f"예측선 (기울기 {m1.coef_[0]:.3f})",
+                    line=dict(color="crimson", width=2.5),
+                    hovertemplate="잎 수 %{x:.0f}장<br>예측 생중량 %{y:.2f}g<extra></extra>"
+                ))
+                fig_m1.update_layout(
+                    title=dict(text=f"모델 1: 잎 수 → 생중량 (R²={r2_1:.3f}, MAE={mae_1:.2f}g)",
+                               x=0.02, xanchor="left"),
+                    xaxis_title="잎 수 (장)", yaxis_title="생중량 (g)",
+                    xaxis=dict(showgrid=True, gridcolor="#eee"),
+                    yaxis=dict(showgrid=True, gridcolor="#eee", range=[0, y.max() * 1.1]),
+                    width=700, height=450,
+                    font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif", size=13)
+                )
+                st.plotly_chart(fig_m1, width="stretch")
+
+                m1c1, m1c2, m1c3, m1c4 = st.columns(4)
+                m1c1.metric("기울기", f"{m1.coef_[0]:.4f}")
+                m1c2.metric("절편", f"{m1.intercept_:.4f}")
+                m1c3.metric("훈련 R²", f"{r2_1:.4f}")
+                m1c4.metric("훈련 MAE", f"{mae_1:.3f} g")
+
+                m1c5, m1c6 = st.columns(2)
+                m1c5.metric("5겹 CV R²", f"{cv_r2_1.mean():.3f} ± {cv_r2_1.std():.3f}")
+                m1c6.metric("5겹 CV MAE", f"{cv_mae_1.mean():.3f} g")
+
+                st.markdown("---")
+
+                # ---- 모델 2 설명 ----
+                st.subheader("모델 2 — 잎 수 + 지상부 길이로 생중량 예측 (다중 선형회귀)")
+                st.markdown(
+                    f"""
+                    **회귀식**: 생중량(g) ≈ {m2.coef_[0]:.4f} × 잎 수 + {m2.coef_[1]:.4f} × 지상부 길이 + ({m2.intercept_:+.4f})
+                    - 잎 수 기울기 {m2.coef_[0]:.4f}: 지상부 길이 효과를 나눈 뒤에도 잎 수 1장당 약 {m2.coef_[0]:.2f}g 연관성
+                    - 지상부 길이 기울기 {m2.coef_[1]:.4f}: 잎 수 효과를 나눈 뒤 1mm당 약 {m2.coef_[1]:.3f}g 연관성
+                    - 절편 {m2.intercept_:+.4f}
+                    """
+                )
+
+                # 예측값 vs 실제 산점도 (두 모델 나란히)
+                fig_cmp = make_subplots(rows=1, cols=2,
+                                        subplot_titles=["모델 1 예측 vs 실제", "모델 2 예측 vs 실제"])
+                fig_cmp.add_trace(go.Scatter(
+                    x=y, y=p1, mode="markers",
+                    marker=dict(size=8, color="orange", opacity=0.8,
+                                line=dict(width=1, color="white")),
+                    name="모델 1",
+                    hovertemplate="실제 %{x:.2f}g<br>예측 %{y:.2f}g<extra></extra>"
+                ), row=1, col=1)
+                fig_cmp.add_trace(go.Scatter(
+                    x=y, y=p2, mode="markers",
+                    marker=dict(size=8, color="green", opacity=0.8,
+                                line=dict(width=1, color="white")),
+                    name="모델 2",
+                    hovertemplate="실제 %{x:.2f}g<br>예측 %{y:.2f}g<extra></extra>"
+                ), row=1, col=2)
+                limit = max(y.max(), p1.max(), p2.max()) * 1.08
+                for r_i, c_i in [(1, 1), (1, 2)]:
+                    fig_cmp.add_trace(go.Scatter(
+                        x=[0, limit], y=[0, limit],
+                        mode="lines", name="완벽 예측",
+                        line=dict(color="gray", dash="dot"),
+                        hoverinfo="skip"
+                    ), row=r_i, col=c_i)
+                fig_cmp.update_layout(
+                    font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
+                    width=900, height=420,
+                    showlegend=False
+                )
+                fig_cmp.update_xaxes(title_text="실제 생중량 (g)", row=1, col=1)
+                fig_cmp.update_yaxes(title_text="예측 생중량 (g)", row=1, col=1)
+                fig_cmp.update_xaxes(title_text="실제 생중량 (g)", row=1, col=2)
+                fig_cmp.update_yaxes(title_text="예측 생중량 (g)", row=1, col=2)
+                st.plotly_chart(fig_cmp, width="stretch")
+
+                m2c1, m2c2, m2c3, m2c4 = st.columns(4)
+                m2c1.metric("잎 수 기울기", f"{m2.coef_[0]:.4f}")
+                m2c2.metric("지상부 기울기", f"{m2.coef_[1]:.4f}")
+                m2c3.metric("훈련 R²", f"{r2_2:.4f}")
+                m2c4.metric("훈련 MAE", f"{mae_2:.3f} g")
+
+                m2c5, m2c6 = st.columns(2)
+                m2c5.metric("5겹 CV R²", f"{cv_r2_2.mean():.3f} ± {cv_r2_2.std():.3f}")
+                m2c6.metric("5겹 CV MAE", f"{cv_mae_2.mean():.3f} g")
+
+                st.markdown("---")
+                st.subheader("📌 모델 비교 표")
+                compare_tbl = pd.DataFrame({
+                    "모델": ["모델 1 (잎 수만)", "모델 2 (잎 수 + 지상부 길이)"],
+                    "설명 변수": ["잎 수", "잎 수 + 지상부 길이"],
+                    "훈련 R²": [f"{r2_1:.3f}", f"{r2_2:.3f}"],
+                    "훈련 MAE (g)": [f"{mae_1:.3f}", f"{mae_2:.3f}"],
+                    "CV R² (평균)": [f"{cv_r2_1.mean():.3f}", f"{cv_r2_2.mean():.3f}"],
+                    "CV MAE (g, 평균)": [f"{cv_mae_1.mean():.3f}", f"{cv_mae_2.mean():.3f}"],
+                })
+                st.dataframe(compare_tbl, width="stretch", hide_index=True)
+
+                st.markdown("---")
+                st.subheader("📌 해석")
+                st.markdown(
+                    f"""
+                    - 두 모델 모두 잎 수가 생중량 예측에 큰 역할을 함 (모델 1만 써도 R² ≈ {r2_1:.2f})
+                    - 모델 2에 지상부 길이를 추가했을 때 훈련 R²는 {r2_2:.3f}로 모델 1({r2_1:.3f})과 큰 차이 없음
+                    - 교차검증 R²도 모델 1({cv_r2_1.mean():.3f})과 모델 2({cv_r2_2.mean():.3f})가 비슷하거나
+                      오히려 모델 2가 약간 낮음 → 지상부 길이는 잎 수를 이미 알고 있을 때 추가 설명력이 크지 않음
+                    - **결론**: 생중량 예측에는 **잎 수가 핵심 변수**이고, 지상부 길이는 잎 수와 함께 쓰면
+                      크게 도움 되지 않음. 다만 지하부 길이는 이번 모델에 포함되지 않았으므로 별도 확인 필요.
+                    """
+                )
+
+                st.markdown("---")
+                st.subheader("📌 한계")
+                st.markdown(
+                    """
+                    - 이 모델은 이 학교의 이 스마트팜에서 이 시기에 재배된 81개체 데이터로 만들어졌으므로,
+                      다른 학교·다른 환경·측정 범위 밖 예측에는 적용하기 어려움
+                    - 회귀계수를 "잎 수가 늘면 생중량이 증가한다"는 인과관계로 해석하면 안 됨 (연관성임)
+                    - 81개체는 통계 결론을 일반화하기에 작은 표본일 수 있음
+                    """
+                )
+
+                # 대표 개체 10개 예측 비교
+                st.markdown("---")
+                st.subheader("📌 대표 개체 10개 실제 vs 예측 비교")
+                sample_idx = np.linspace(0, len(clean) - 1, 10, dtype=int)
+                sam = clean.iloc[sample_idx].copy()
+                sam["모델1 예측"] = m1.predict(sam[["잎 수"]].values)
+                sam["모델2 예측"] = m2.predict(sam[["잎 수", "지상부 길이"]].values)
+                sam_disp = sam[["잎 수", "지상부 길이", "생중량", "모델1 예측", "모델2 예측"]].round(2)
+                st.dataframe(sam_disp, width="stretch", hide_index=True)
+
+                # 예측 계산기
+                st.markdown("---")
+                st.subheader("📌 예측 계산기 (학습 데이터 범위 안에서만)")
+                in_leaves = st.slider("잎 수(장)", 0, int(clean["잎 수"].max()), 50)
+                in_shoot = st.slider("지상부 길이(mm)", 0, int(clean["지상부 길이"].max()), 40)
+                cA, cB = st.columns(2)
+                with cA:
+                    v1 = m1.predict([[in_leaves]])[0]
+                    st.metric("모델 1 예측 생중량", f"{v1:.2f} g")
+                with cB:
+                    v2 = m2.predict([[in_leaves, in_shoot]])[0]
+                    st.metric("모델 2 예측 생중량", f"{v2:.2f} g")
+                st.info(f"⚠️ 이 예측기는 잎 수 3~{int(clean['잎 수'].max())}장, 지상부 10~{int(clean['지상부 길이'].max())}mm 범위에서만 참고용이에요. 범위 밖은 신뢰하기 어려워요.")
+            else:
+                st.info("회귀모델을 만들기에 데이터가 부족해요 (최소 10개 필요).")
+        else:
+            st.info("잎 수·지상부 길이·생중량 열이 모두 필요해요.")
+    except Exception as e:
+        st.warning(f"⚠️ 이 부분은 데이터 형식 때문에 표시하지 못했어요: {e}")
+
+# ========== 탭 4: 개체별 비율 ==========
+with tab4:
+    try:
+        st.header(f"[{school_name}] 개체별 지상부/지하부 길이 비율 비교")
+
+        st.info(
+            "💡 비율 = 지상부 길이 ÷ 지하부 길이. 1보다 크면 지상부가 더 길고, 1보다 작으면 지하부가 더 길다는 뜻이에요. "
+            "이 비율은 두 길이의 ' 상대적인 균형'을 보여주며, 개체마다 줄기·뿌리 생장 전략이 다를 수 있음을 살펴보는 지표예요."
+        )
+
         if not growth_df.empty and "지상부 길이" in growth_df.columns and "지하부 길이" in growth_df.columns:
-            clean = growth_df[["개체번호", "지상부 길이", "지하부 길이"]].dropna()
+            clean = growth_df[["개체번호", "지상부 길이", "지하부 길이"]].dropna().copy()
             if len(clean) >= 2:
-                clean = clean.copy()
-                clean["비율(지상부/지하부)"] = clean["지상부 길이"] / clean["지하부 길이"].replace(0, np.nan)
-                clean = clean.dropna(subset=["비율(지상부/지하부)"])
+                clean["비율"] = clean["지상부 길이"] / clean["지하부 길이"].replace(0, np.nan)
+                clean = clean.dropna(subset=["비율"])
                 if len(clean) > 0:
-                    clean = clean.sort_values("비율(지상부/지하부)")
+                    clean = clean.sort_values("비율")
                     top10 = clean.tail(10)
                     bottom10 = clean.head(10)
 
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.subheader("비율이 높은 개체 (지상부가 상대적으로 긴 10개)")
+                    colL, colR = st.columns(2)
+                    with colL:
+                        st.subheader("지상부/지하부 비율이 높은 개체 10개 (지상부가 상대적으로 더 긴 쪽)")
                         fig_top = go.Figure()
                         fig_top.add_trace(go.Bar(
                             x=top10["개체번호"].astype(str),
-                            y=top10["비율(지상부/지하부)"],
+                            y=top10["비율"],
                             marker_color="steelblue",
-                            hovertemplate="개체 %{x}<br>비율: %{y:.2f}<extra></extra>"
+                            text=top10["비율"].round(2),
+                            textposition="outside",
+                            textfont=dict(size=10),
+                            hovertemplate="개체 %{x}<br>비율 %{y:.2f}<br>지상부 %{customdata[0]:.0f}mm<br>지하부 %{customdata[1]:.0f}mm<extra></extra>",
+                            customdata=top10[["지상부 길이", "지하부 길이"]].values
                         ))
                         fig_top.update_layout(
-                            title="지상부/지하부 길이 비율 상위 10개",
+                            title="비율 상위 10개 개체",
                             xaxis_title="개체번호",
                             yaxis_title="비율 (지상부 ÷ 지하부)",
+                            yaxis=dict(range=[0, max(top10["비율"].max() * 1.2, 1)]),
                             font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
-                            width=450, height=400
+                            width=450, height=420
                         )
                         st.plotly_chart(fig_top, width="stretch")
 
-                    with col2:
-                        st.subheader("비율이 낮은 개체 (지하부가 상대적으로 긴 10개)")
-                        fig_bottom = go.Figure()
-                        fig_bottom.add_trace(go.Bar(
+                    with colR:
+                        st.subheader("지상부/지하부 비율이 낮은 개체 10개 (지하부가 상대적으로 더 긴 쪽)")
+                        fig_bot = go.Figure()
+                        fig_bot.add_trace(go.Bar(
                             x=bottom10["개체번호"].astype(str),
-                            y=bottom10["비율(지상부/지하부)"],
+                            y=bottom10["비율"],
                             marker_color="coral",
-                            hovertemplate="개체 %{x}<br>비율: %{y:.2f}<extra></extra>"
+                            text=bottom10["비율"].round(2),
+                            textposition="outside",
+                            textfont=dict(size=10),
+                            hovertemplate="개체 %{x}<br>비율 %{y:.2f}<br>지상부 %{customdata[0]:.0f}mm<br>지하부 %{customdata[1]:.0f}mm<extra></extra>",
+                            customdata=bottom10[["지상부 길이", "지하부 길이"]].values
                         ))
-                        fig_bottom.update_layout(
-                            title="지상부/지하부 길이 비율 하위 10개",
+                        fig_bot.update_layout(
+                            title="비율 하위 10개 개체",
                             xaxis_title="개체번호",
                             yaxis_title="비율 (지상부 ÷ 지하부)",
+                            yaxis=dict(range=[0, max(bottom10["비율"].max() * 1.5, 1)]),
                             font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
-                            width=450, height=400
+                            width=450, height=420
                         )
-                        st.plotly_chart(fig_bottom, width="stretch")
+                        st.plotly_chart(fig_bot, width="stretch")
 
-                    # 전체 개체 비율 분포
                     st.markdown("---")
-                    st.subheader("전체 개체 비율 분포 (히스토그램)")
+                    st.subheader("📌 전체 비율 분포 히스토그램")
                     fig_hist = go.Figure()
                     fig_hist.add_trace(go.Histogram(
-                        x=clean["비율(지상부/지하부)"],
+                        x=clean["비율"],
                         nbinsx=20,
                         marker_color="mediumseagreen",
-                        opacity=0.7,
+                        opacity=0.75,
                         hovertemplate="비율 %{x:.2f}<br>개체 수 %{y}<extra></extra>"
                     ))
+                    fig_hist.add_vline(x=1.0, line_dash="dot", line_color="gray",
+                                       annotation_text="비율 1.0 (지상부=지하부)",
+                                       annotation_position="top right")
                     fig_hist.update_layout(
                         title="개체별 지상부/지하부 길이 비율 분포",
                         xaxis_title="비율 (지상부 ÷ 지하부)",
                         yaxis_title="개체 수",
-                        font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
-                        width=650, height=400
+                        xaxis=dict(showgrid=True, gridcolor="#eee"),
+                        yaxis=dict(showgrid=True, gridcolor="#eee"),
+                        width=700, height=420,
+                        font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif", size=13)
                     )
                     st.plotly_chart(fig_hist, width="stretch")
 
-                    # 분포 요약
-                    st.metric("비율 평균", f"{clean['비율(지상부/지하부)'].mean():.2f}")
-                    st.metric("비율 중앙값", f"{clean['비율(지상부/지하부)'].median():.2f}")
-                    st.metric("비율 표준편차", f"{clean['비율(지상부/지하부)'].std():.2f}")
-                    st.info(
-                        "💡 비율이 1보다 크면 지상부가 지하부보다 길다는 뜻, "
-                        "1보다 작으면 지하부가 더 길다는 뜻이에요. "
-                        "지상부와 지하부 생장이 서로 독립적으로 이뤄질 수 있음을 보여주는 지표예요."
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("비율 평균", f"{clean['비율'].mean():.2f}")
+                    m2.metric("비율 중앙값", f"{clean['비율'].median():.2f}")
+                    m3.metric("비율 표준편차", f"{clean['비율'].std():.2f}")
+                    m4.metric("분석 개체 수", f"{len(clean)}개")
+
+                    st.markdown("---")
+                    st.subheader("📌 해석")
+                    ratio_mean = clean["비율"].mean()
+                    if ratio_mean > 1:
+                        ratio_msg = "평균적으로 지상부가 지하부보다 긴 편이에요."
+                    elif ratio_mean < 1:
+                        ratio_msg = "평균적으로 지하부가 지상부보다 긴 편이에요."
+                    else:
+                        ratio_msg = "평균적으로 지상부와 지하부 길이가 비슷해요."
+
+                    n_over1 = int((clean["비율"] > 1).sum())
+                    n_under1 = int((clean["비율"] < 1).sum())
+
+                    st.markdown(
+                        f"""
+                        - {ratio_msg}
+                        - 비율이 1보다 큰 개체(지상부 > 지하부): **{n_over1}개**
+                        - 비율이 1보다 작은 개체(지상부 < 지하부): **{n_under1}개**
+                        - 비율 범위를 보면 일부 개체는 지상부가 훨씬 길고, 일부 개체는 지하부가 훨씬 길어요.
+                          → 같은 조건에서 자랐어도 개체마다 지상부·지하부 균형이 다르게 나타날 수 있어요.
+                        - 앞서 피어슨 r이 거의 0이었던 결과와도 연결돼요:
+                          지상부 길이와 지하부 길이가 각자 독립적으로 결정되는 경향이 있다는 뜻이에요.
+                        """
                     )
 
                     # CSV 다운로드
-                    clean_down = clean[["개체번호", "지상부 길이", "지하부 길이", "비율(지상부/지하부)"]].copy()
-                    csv_data = clean_down.to_csv(index=False).encode("utf-8-sig")
+                    down_df = clean[["개체번호", "지상부 길이", "지하부 길이", "비율"]].copy()
+                    down_df["비율"] = down_df["비율"].round(3)
+                    csv_bytes = down_df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
-                        label="📥 개체별 비율 데이터 다운로드 (CSV)",
-                        data=csv_data,
+                        label="📥 개체별 비율 데이터 다운로드 (CSV, 한글 깨짐 방지)",
+                        data=csv_bytes,
                         file_name=f"{school_name}_개체별_비율.csv",
                         mime="text/csv"
                     )
@@ -450,12 +787,21 @@ with tab3:
     except Exception as e:
         st.warning(f"⚠️ 이 부분은 데이터 형식 때문에 표시하지 못했어요: {e}")
 
-# ---------- 탭 4: 생육조건 영향 해석 ----------
-with tab4:
+# ========== 탭 5: 생육조건 영향 해석 ==========
+with tab5:
     try:
-        st.header(f"{school_name} — 생육조건 영향 해석")
+        st.header(f"[{school_name}] 생육 환경 조건과 개체별 차이 — 종합 해석")
+
+        st.info(
+            "💡 이 탭은 환경 데이터(온도·습도·EC·pH)와 생육 데이터를 함께 놓고, "
+            "'어떤 조건이 생육 차이에 영향을 주었을지'를 해석하는 페이지예요. "
+            "다만 생육결과데이터에 개체별 측정일이 없어서 환경 값과 개체를 직접 연결하긴 어려워요. "
+            "그래서 여기선 환경 데이터의 패턴을 먼저 살펴보고, 그 Pattern이 개체 차이와 어떻게 연결될 수 있는지 정리해요."
+        )
+
+        # ------ 5-1. 환경 요약 통계 ------
+        st.subheader("1️⃣ 스마트팜 환경 요약 통계")
         if not env_df.empty:
-            st.subheader("1. 스마트팜 환경 요약 통계")
             env_num_cols = [
                 c for c in ["temperature", "humidity", "ph", "ec"]
                 if c in env_df.columns and pd.api.types.is_numeric_dtype(env_df[c])
@@ -463,141 +809,237 @@ with tab4:
             if len(env_num_cols) > 0:
                 env_clean = env_df[env_num_cols].dropna()
                 if len(env_clean) > 0:
-                    stats_df = pd.DataFrame({
+                    s = pd.DataFrame({
                         "평균": env_clean.mean().round(2),
                         "표준편차": env_clean.std().round(2),
                         "최소": env_clean.min().round(2),
                         "최대": env_clean.max().round(2),
                     })
-                    stats_df.index.name = "항목"
-                    stats_df["변동계수(CV) %"] = (stats_df["표준편차"] / stats_df["평균"] * 100).round(2)
-                    st.dataframe(stats_df, width="stretch")
-                    st.info(
-                        "💡 CV(변동계수)는 표준편차를 평균으로 나눈 백분율이에요. "
-                        "단위가 다른 항목끼리도 평균 대비 얼마나 들쭉날쭉한지 비교할 수 있어요."
+                    s["변동계수 CV(%)"] = (s["표준편차"] / s["평균"] * 100).round(2)
+                    s.index = [c.replace("temperature", "온도(℃)").replace("humidity", "습도(%)")
+                               .replace("ph", "pH").replace("ec", "EC(mS/cm)") for c in s.index]
+                    st.dataframe(s, width="stretch")
+
+                    st.markdown("---")
+                    st.subheader("📌 통계 읽는 방법")
+                    st.markdown(
+                        """
+                        | 용어 | 뜻 | 예시 |
+                        |------|-----|------|
+                        | 평균 | 모든 값을 더해 개수로 나눈 값, '대표값' | 온도 평균 24.3℃ → 대체로 이 정도 |
+                        | 표준편차 | 각 값이 평균에서 얼마나 떨어져 있는지, 원래 단위와 같음 | 클수록 데이터가 넓게 퍼짐 |
+                        | 최소·최대 | 가장 작은/큰 값, 극단 조건 확인 | 온도 최대 37℃ → 급한 더위 구간 있었음 |
+                        | CV(%) | 표준편차 ÷ 평균 × 100, 단위가 다른 항목끼리도 비교 가능 | EC CV 38% → 온도 CV 10%보다 들쭉날쭉 |
+                        """
                     )
 
-                # 시간대별 평균
-                if "time" in env_df.columns:
                     st.markdown("---")
-                    st.subheader("2. 시간대별 평균 온도·습도")
-                    time_clean = env_df[["time", "temperature", "humidity"]].dropna()
-                    if len(time_clean) >= 2 and "temperature" in time_clean.columns:
-                        time_clean = time_clean.copy()
-                        time_clean["hour"] = time_clean["time"].dt.hour
-                        hourly = time_clean.groupby("hour").agg(
-                            온도_평균=("temperature", "mean"),
-                            습도_평균=("humidity", "mean")
-                        ).reset_index()
-                        if len(hourly) > 0:
-                            fig_time = make_subplots(specs=[[{"secondary_y": True}]])
-                            fig_time.add_trace(go.Bar(
-                                x=hourly["hour"], y=hourly["온도_평균"],
-                                name="온도(℃)",
-                                marker_color="indianred",
-                                hovertemplate="시간 %{x}시<br>온도 %{y:.1f}℃<extra></extra>"
-                            ))
-                            fig_time.add_trace(go.Scatter(
-                                x=hourly["hour"], y=hourly["습도_평균"],
-                                name="습도(%)",
-                                mode="lines+markers",
-                                marker=dict(color="royalblue", size=8),
-                                line=dict(color="royalblue"),
-                                hovertemplate="시간 %{x}시<br>습도 %{y:.1f}%<extra></extra>"
-                            ), secondary_y=True)
-                            fig_time.update_layout(
-                                title="시간대별 평균 온도·습도",
-                                font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
-                                width=700, height=450
-                            )
-                            fig_time.update_xaxes(title_text="시간 (시)")
-                            fig_time.update_yaxes(title_text="온도 (℃)", row=1, col=1)
-                            fig_time.update_yaxes(title_text="습도 (%)", row=1, col=1, secondary_y=True)
-                            st.plotly_chart(fig_time, width="stretch")
+                    st.subheader("📌 환경 데이터 해석")
+                    temp_mean = env_clean["temperature"].mean() if "temperature" in env_clean.columns else None
+                    hum_mean = env_clean["humidity"].mean() if "humidity" in env_clean.columns else None
 
-                # 날짜별 추이
-                if "time" in env_df.columns:
-                    st.markdown("---")
-                    st.subheader("3. 날짜별 평균 온도·습도 추이")
-                    date_clean = env_df[["time", "temperature", "humidity"]].dropna()
-                    if len(date_clean) >= 2:
-                        date_clean = date_clean.copy()
-                        date_clean["date"] = date_clean["time"].dt.date
-                        daily = date_clean.groupby("date").agg(
-                            온도_평균=("temperature", "mean"),
-                            온도_std=("temperature", "std"),
-                            습도_평균=("humidity", "mean"),
-                            습도_std=("humidity", "std")
-                        ).reset_index()
-                        if len(daily) > 0:
-                            fig_daily = make_subplots(specs=[[{"secondary_y": True}]])
-                            x_dates = [str(d) for d in daily["date"]]
-                            fig_daily.add_trace(go.Scatter(
-                                x=x_dates, y=daily["온도_평균"],
-                                name="온도 평균",
-                                mode="lines+markers",
-                                marker=dict(size=5, color="indianred"),
-                                line=dict(color="indianred"),
-                                hovertemplate="날짜 %{x}<br>온도 %{y:.1f}℃<extra></extra>"
-                            ))
-                            temp_upper = daily["온도_평균"] + daily["온도_std"].fillna(0)
-                            temp_lower = daily["온도_평균"] - daily["온도_std"].fillna(0)
-                            fig_daily.add_trace(go.Scatter(
-                                x=x_dates + x_dates[::-1],
-                                y=list(temp_upper) + list(temp_lower)[::-1],
-                                fill="toself", fillcolor="indianred",
-                                line=dict(color="rgba(0,0,0,0)"),
-                                name="온도 변동 범위",
-                                opacity=0.2,
-                                hoverinfo="skip"
-                            ))
-                            fig_daily.add_trace(go.Scatter(
-                                x=x_dates, y=daily["습도_평균"],
-                                name="습도 평균",
-                                mode="lines+markers",
-                                marker=dict(size=5, color="royalblue"),
-                                line=dict(color="royalblue"),
-                                hovertemplate="날짜 %{x}<br>습도 %{y:.1f}%<extra></extra>"
-                            ), secondary_y=True)
-                            fig_daily.update_layout(
-                                title="날짜별 평균 온도·습도 추이",
-                                font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
-                                width=800, height=450
-                            )
-                            fig_daily.update_xaxes(title_text="날짜")
-                            fig_daily.update_yaxes(title_text="온도 (℃)", row=1, col=1)
-                            fig_daily.update_yaxes(title_text="습도 (%)", row=1, col=1, secondary_y=True)
-                            st.plotly_chart(fig_daily, width="stretch")
-
+                    if temp_mean is not None:
+                        st.markdown(
+                            f"""
+                            - **온도**: 평균 {temp_mean:.1f}℃, CV {(env_clean['temperature'].std()/temp_mean*100):.1f}%
+                              → 대체로 20~26℃ 범위에서 안정적으로 유지되었으나, 특정 시점에 최대 37℃까지 치솟는 급상승 구간이 있었음
+                            - **습도**: 평균 {hum_mean:.1f}%, CV {(env_clean['humidity'].std()/hum_mean*100):.1f}%
+                              → 주간 감소·야간 증가 패턴이 규칙적으로 나타났고, 이상치는 거의 없어 네 지표 중 가장 안정적이었음
+                            """
+                        )
+                    if "ec" in env_clean.columns:
+                        st.markdown(
+                            f"""
+                            - **EC**: 평균 {env_clean['ec'].mean():.2f} mS/cm, CV {env_clean['ec'].std()/env_clean['ec'].mean()*100:.1f}%
+                              → CV가 가장 높고, 낮은 구간(0.19~0.54)과 높은 구간(0.81~2.34)으로 나뉘는 bimodal 양상이 보여
+                                단일 통계만으로는 안정성을 판단하기 어려움
+                            """
+                        )
+                    if "ph" in env_clean.columns:
+                        st.markdown(
+                            f"""
+                            - **pH**: 평균 {env_clean['ph'].mean():.2f}, CV {env_clean['ph'].std()/env_clean['ph'].mean()*100:.1f}%
+                              → 평균 자체는 안정적이나 8월 하순~9월 초에 4~5 수준으로 급락하는 구간이 여러 차례 반복됨
+                            """
+                        )
+                else:
+                    st.info("환경 데이터에서 계산할 수 있는 숫자 값이 없어요.")
             else:
                 st.info("환경 데이터에서 숫자 열을 찾을 수 없어요.")
         else:
             st.info("환경 CSV를 업로드해 주세요.")
 
+        # ------ 5-2. 시간대별 패턴 ------
+        if not env_df.empty and "time" in env_df.columns:
+            st.markdown("---")
+            st.subheader("2️⃣ 시간대별 평균 온도·습도")
+            tcl = env_df[["time", "temperature", "humidity"]].dropna()
+            if len(tcl) >= 2:
+                tcl = tcl.copy()
+                tcl["hour"] = tcl["time"].dt.hour
+                hourly = tcl.groupby("hour").agg(
+                    온도=("temperature", "mean"),
+                    습도=("humidity", "mean")
+                ).reset_index()
+
+                if len(hourly) > 0:
+                    fig_h = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig_h.add_trace(go.Bar(
+                        x=hourly["hour"], y=hourly["온도"],
+                        name="온도(℃)",
+                        marker_color="indianred",
+                        hovertemplate="시간 %{x}시<br>평균 온도 %{y:.1f}℃<extra></extra>"
+                    ))
+                    fig_h.add_trace(go.Scatter(
+                        x=hourly["hour"], y=hourly["습도"],
+                        name="습도(%)",
+                        mode="lines+markers",
+                        marker=dict(color="royalblue", size=8),
+                        line=dict(color="royalblue", width=2.5),
+                        hovertemplate="시간 %{x}시<br>평균 습도 %{y:.1f}%<extra></extra>"
+                    ), secondary_y=True)
+                    fig_h.update_layout(
+                        title="시간대별 평균 온도(막대)와 습도(선)",
+                        xaxis_title="시간 (시)",
+                        font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
+                        width=700, height=420
+                    )
+                    fig_h.update_yaxes(title_text="온도 (℃)", row=1, col=1)
+                    fig_h.update_yaxes(title_text="습도 (%)", row=1, col=1, secondary_y=True)
+                    st.plotly_chart(fig_h, width="stretch")
+
+                    warm_hour = hourly.loc[hourly["온도"].idxmax(), "hour"]
+                    cold_hour = hourly.loc[hourly["온도"].idxmin(), "hour"]
+                    st.markdown(
+                        f"""
+                        - 하루 중 가장 더운 시간대: **{int(warm_hour)}시** (평균 {hourly['온도'].max():.1f}℃)
+                        - 하루 중 가장 추운 시간대: **{int(cold_hour)}시** (평균 {hourly['온도'].min():.1f}℃)
+                        - 일교차(최고-최저): 약 {hourly['온도'].max() - hourly['온도'].min():.1f}℃
+                        - 습도는 새벽(0~6시)에 가장 높고 오전~낮에 낮아지는 패턴
+                        """
+                    )
+
+        # ------ 5-3. 날짜별 추이 ------
+        if not env_df.empty and "time" in env_df.columns:
+            st.markdown("---")
+            st.subheader("3️⃣ 날짜별 평균 온도·습도 추이 + 변동 범위")
+            dcl = env_df[["time", "temperature", "humidity"]].dropna()
+            if len(dcl) >= 2:
+                dcl = dcl.copy()
+                dcl["date"] = dcl["time"].dt.date
+                daily = dcl.groupby("date").agg(
+                    온도_평균=("temperature", "mean"),
+                    온도_표준편차=("temperature", "std"),
+                    습도_평균=("humidity", "mean"),
+                    습도_표준편차=("humidity", "std")
+                ).reset_index()
+
+                if len(daily) > 0:
+                    fig_d = make_subplots(specs=[[{"secondary_y": True}]])
+                    xd = [str(d) for d in daily["date"]]
+
+                    fig_d.add_trace(go.Scatter(
+                        x=xd, y=daily["온도_평균"],
+                        name="온도 평균",
+                        mode="lines+markers",
+                        marker=dict(size=5, color="indianred"),
+                        line=dict(color="indianred", width=2),
+                        hovertemplate="날짜 %{x}<br>온도 평균 %{y:.1f}℃<extra></extra>"
+                    ))
+                    temp_u = daily["온도_평균"] + daily["온도_표준편차"].fillna(0)
+                    temp_l = daily["온도_평균"] - daily["온도_표준편차"].fillna(0)
+                    fig_d.add_trace(go.Scatter(
+                        x=xd + xd[::-1],
+                        y=list(temp_u) + list(temp_l)[::-1],
+                        fill="toself", fillcolor="indianred",
+                        line=dict(color="rgba(0,0,0,0)"),
+                        name="온도 변동 범위 (평균±표준편차)",
+                        opacity=0.18,
+                        hoverinfo="skip"
+                    ))
+                    fig_d.add_trace(go.Scatter(
+                        x=xd, y=daily["습도_평균"],
+                        name="습도 평균",
+                        mode="lines+markers",
+                        marker=dict(size=5, color="royalblue"),
+                        line=dict(color="royalblue", width=2),
+                        hovertemplate="날짜 %{x}<br>습도 평균 %{y:.1f}%<extra></extra>"
+                    ), secondary_y=True)
+                    fig_d.update_layout(
+                        title="날짜별 평균 온도(빨간선+음영)·습도(파란선) 추이",
+                        xaxis_title="날짜",
+                        font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
+                        width=820, height=420
+                    )
+                    fig_d.update_yaxes(title_text="온도 (℃)", row=1, col=1)
+                    fig_d.update_yaxes(title_text="습도 (%)", row=1, col=1, secondary_y=True)
+                    st.plotly_chart(fig_d, width="stretch")
+
+                    st.markdown(
+                        """
+                        - 빨간 점선 안쪽 음영 = 하루 안에서의 변동 범위(평균 ± 표준편차)
+                        - 음영이 넓은 날짜는 그날 안에서도 온도·습도가 크게 흔들렸다는 뜻
+                        - 온도는 특정 날짜에 37℃ 가까이 치솟는 구간이 있었고, 습도는 상대적으로 완만함
+                        """
+                    )
+
+        # ------ 5-4. 종합 해석 ------
         st.markdown("---")
-        st.subheader("4. 생육조건 영향 해석 요약")
-        st.markdown("""
-        <div style="font-size: 0.95rem; line-height: 1.6;">
-        <b>📌 이 분석의 한계</b><br>
-        생육결과데이터에는 개체별 생육 측정일이 없어 환경데이터 측정 시점과 직접 연결이 어려워요.
-        개체 위치·처리구 정보도 없어, 측정된 환경 요인만으로 개체별 차이를 설명하기엔 제약이 커요.
-        
-        <b>📌 환경 데이터에서 눈에 띄는 점</b><br>
-        - 온도·습도는 대체로 안정적이었으나 특정 시점에 급상승 구간이 있었어요.<br>
-        - EC는 변동 폭이 컸고, 낮은 그룹과 높은 그룹으로 나뉘는 양상이 보였어요.<br>
-        - pH는 후반에 4~5 수준으로 급락하는 구간이 반복되었어요.<br>
-        
-        <b>📌 개체별 차이 가능성</b><br>
-        같은 시설 안에서도 국소적 광량·통풍·배양액 공급 차이, 초기 생육 상태, 측정 시점 차이 등이
-        개체별 생육 차이로 이어질 수 있어요. 측정값이 매우 작은 개체들은 생장 초기 단계이거나
-        측정 오류 가능성도 고려할 수 있어요.
-        
-        <b>📌 제안</b><br>
-        - 개체별 생육 측정일(날짜·시각)을 개체번호와 함께 기록<br>
-        - 개체 위치·처리구·광 조건 정보 함께 기록<br>
-        - 환경 급변동·이상치 구간에 대한 현장 메모 남기기<br>
-        - 광량·배지·배양액 조성·병해충 관찰 등 추가 변수 도입
-        </div>
-        """, unsafe_allow_html=True)
+        st.subheader("4️⃣ 생육조건 차이가 개체별 생육 차이에 미치는 영향 — 종합 해석")
+
+        st.markdown(
+            """
+            <div style="font-size:0.97rem; line-height:1.65;">
+            
+            <b>📌 이 데이터에서할수있는 해석과 할 수 없는 해석</b><br>
+            생육결과데이터에는 개체별 생육 측정일이 없어서, '개체 A가 어느 날 어떤 온도·습도에서 자랐는지'를
+            환경 데이터와 직접 연결할 수 없어요. 또 개체 위치·처리구·광 조건·양분 조건도 기록되어 있지 않아서,
+            측정된 환경 요인만으로 개체 차이를 설명하기는 어려워요. 그래서 아래 해석은 **가능성을 정리한 것**이고
+            확정적 결론은 아니에요.
+            
+            <b>📌 측정된 환경 요인의 변동</b><br>
+            - 온도·습도는 대체로 안정적이었지만, 특정 시점에 온도 급상승(최대 37℃)이 있었고 습도도 주간/야간 패턴이 있었음<br>
+            - EC는 변동 폭이 크고 bimodal 분포를 보였으며, pH는 후반부에 4~5 수준으로 급락하는 구간이 여러 번 있었음<br>
+            - 만약 개체마다 생장이 진행된 구체적 시간대의 환경 조건이 달랐다면, 같은 시설 안에서도 개체 차이가 나타날 수 있음<br>
+            
+            <b>📌 측정하지 않은 요인 가능성</b><br>
+            - 같은 시설 안에서도 국소적 광량·통풍·온습도 미세 환경·배양식 공급 불균일 등이 달라질 수 있음<br>
+            - 초기 생육 상태·측정 시점 차이만으로도 지상부·지하부 길이, 잎 수, 무게가 크게 달라질 수 있음<br>
+            - 생장 초기이거나 측정 오류 가능성이 있는 개체(잎 수·길이·무게가 매우 작은 개체)도 일부 존재함<br>
+            
+            <b>📌 개체별 차이와 지상부·지하부 독립성</b><br>
+            - 피어슨 r ≈ 0 → 지상부 길이와 지하부 길이 사이에 직선 관계가 거의 없음<br>
+            - 스피어만 ρ ≈ 0.28 → 순위 기준으로 아주 약한 양의 연관성이 있을 수 있음<br>
+            - 지상부·지하부가 서로 다른 요인에 의해 조절될 수 있음을 시사 (예: 개체 8은 지상부 28mm/지하부 251mm,
+              개체 24는 지상부 126mm/지하부 62mm)<br>
+            - 잘 자란 개체와 덜 자란 개체를 가장 크게 가르는 지표는 **잎 수**(Cohens d 2.85)이고,
+              지하부 길이도 큰 차이(Cohens d 2.08)를 보였고, 지상부 길이는 상대적으로 차이가 작았음(Cohens d 0.95)<br>
+              → 줄기 길이보다 잎 수와 뿌리 길이가 개체 전체 생육 수준을 더 잘 반영할 가능성<br>
+            
+            <b>📌 결론</b><br>
+            같은 스마트팜에서 자랐음에도 개체별 생육 차이는 매우 컸고, 지상부와 지하부 길이는 서로 독립적인 경향을 보였어요.
+            개체 차이의 원인은 측정된 환경 변동, 측정되지 않은 공간·광·양분·초기 조건, 측정 시점·오류 가능성이
+            복합적으로 작용한 것으로 추정돼요. 어느 한 요인만으로 설명하기는 어려워요.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown("---")
+        st.subheader("5️⃣ 개선 제안 (다음 실험에서 적용하면 좋은 점)")
+        st.markdown(
+            """
+            1. **개체별 생육 측정일 기록**: 수확 시점뿐 아니라 일정 간격으로 지상부 길이·지하부 길이·잎 수·무게도 측정해
+               개체별 생장 궤적을 파악하면 시계열 분석이 가능해짐
+            2. **개체 위치·처리구 정보 기록**: 화분 번호, 재배대 위치, 광 조건 등을 함께 기록하면 환경 요인과 개체 결과를
+               개체 단위로 연결할 수 있음
+            3. **환경-생육 시간 연결 설계**: 개체별 생육 측정 시점의 환경 값(또는 측정일 기준 구간 평균)을 함께 저장하면
+               온도·습도·EC·pH와 생육 지표 간 관계를 더 구체적으로 검토할 수 있음
+            4. **이상치·급변동 구간 현장 메모**: EC·pH 급변동, 온도 급상승 구간, 생육 값이 매우 작은 개체에 대해
+               당시 장비 상태·측정 방식·재배 상황을 기록해 두면 실제 조건 차이인지 오작동인지 판단할 근거가 됨
+            5. **추가 변수 도입**: 광량, 배지/토양 조건, 배양액 조성, 병해충 관찰 기록 등을 추가하면
+               지상부보다 잎 수·지하부 길이가 개체 생육 수준을 더 잘 반영하는 이유 등을 더 구체적으로 검토할 수 있음
+            """
+        )
     except Exception as e:
         st.warning(f"⚠️ 이 부분은 데이터 형식 때문에 표시하지 못했어요: {e}")
